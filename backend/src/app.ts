@@ -4,6 +4,7 @@ import healthRoutes from './routes/health.routes.js';
 import elasticRoutes from './routes/elastic.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import securityRoutes from './routes/security.routes.js';
+import productRoutes from './routes/product.routes.js';
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use('/api', healthRoutes);
 app.use('/api', elasticRoutes);
 app.use('/api', authRoutes);
 app.use('/api', securityRoutes);
+app.use('/api', productRoutes);
 
 /**
  * Ruta base para confirmar que la API existe.
