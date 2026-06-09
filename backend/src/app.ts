@@ -3,6 +3,7 @@ import cors from 'cors';
 import healthRoutes from './routes/health.routes.js';
 import elasticRoutes from './routes/elastic.routes.js';
 import authRoutes from './routes/auth.routes.js';
+import securityRoutes from './routes/security.routes.js';
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use(express.json());
 app.use('/api', healthRoutes);
 app.use('/api', elasticRoutes);
 app.use('/api', authRoutes);
+app.use('/api', securityRoutes);
 
 /**
  * Ruta base para confirmar que la API existe.

@@ -45,3 +45,22 @@ export async function postLogin(req: Request, res: Response): Promise<void> {
     });
   }
 }
+
+/**
+ * Devuelve el usuario autenticado a partir del token validado por middleware.
+ */
+export function getCurrentUser(req: Request, res: Response): void {
+  if (!req.user) {
+    res.status(401).json({
+      status: 'error',
+      message: 'Token requerido'
+    });
+
+    return;
+  }
+
+  res.status(200).json({
+    status: 'ok',
+    user: req.user
+  });
+}
