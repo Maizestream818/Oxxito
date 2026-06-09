@@ -7,6 +7,7 @@ import securityRoutes from './routes/security.routes.js';
 import productRoutes from './routes/product.routes.js';
 import inventoryRoutes from './routes/inventory.routes.js';
 import saleRoutes from './routes/sale.routes.js';
+import reportRoutes from './routes/report.routes.js';
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use('/api', securityRoutes);
 app.use('/api', productRoutes);
 app.use('/api', inventoryRoutes);
 app.use('/api', saleRoutes);
+app.use('/api', reportRoutes);
 
 /**
  * Ruta base para confirmar que la API existe.
