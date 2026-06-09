@@ -1,12 +1,32 @@
 import { Router } from 'express';
-import { createSaleController } from '../controllers/sale.controller.js';
+import {
+  createSaleController,
+  getSaleByIdController,
+  getSalesBySucursalController
+} from '../controllers/sale.controller.js';
 import { authenticateToken, requireRoles, requireSucursalAccess } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
 /**
- * Ruta para registrar ventas por sucursal con validacion de stock.
+ * Rutas para consultar y registrar ventas por sucursal.
  */
+router.get(
+  '/ventas/:sucursalId',
+  authenticateToken,
+  requireRoles('admin', 'gerente', 'cajero'),
+  requireSucursalAccess,
+  getSalesBySucursalController
+);
+
+router.get(
+  '/ventas/:sucursalId/:ventaId',
+  authenticateToken,
+  requireRoles('admin', 'gerente', 'cajero'),
+  requireSucursalAccess,
+  getSaleByIdController
+);
+
 router.post(
   '/ventas/:sucursalId',
   authenticateToken,

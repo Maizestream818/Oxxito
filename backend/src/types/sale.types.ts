@@ -32,3 +32,13 @@ export type Sale = {
   total: number;
   productos: SaleProduct[];
 };
+
+export type SaleListQuery = {
+  fecha_inicio?: string;
+  fecha_fin?: string;
+  metodo_pago?: string;
+  cajero_id?: string;
+  cliente_id?: string;
+  page?: string;
+  limit?: string;
+};

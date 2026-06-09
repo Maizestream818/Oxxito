@@ -1,9 +1,12 @@
 import { elasticClient } from '../config/elasticClient.js';
 import { AuthenticatedUser } from '../types/auth.types.js';
 import { InventoryItem } from '../types/inventory.types.js';
-import { CreateSaleRequestBody, Sale, SaleProduct } from '../types/sale.types.js';
+import { CreateSaleRequestBody, Sale, SaleListQuery, SaleProduct } from '../types/sale.types.js';
 
 const IVA_RATE = 0.16;
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
 
 type SaleServiceErrorCode = 'VALIDATION_ERROR' | 'NOT_FOUND';
 
@@ -33,6 +36,15 @@ type SaleMovement = {
   motivo: string;
   venta_id: string;
   fecha: string;
+};
+
+type SaleListResult = {
+  items: Sale[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+  };
 };
 
 export class SaleServiceError extends Error {
@@ -71,6 +83,56 @@ function ensurePositiveInteger(value: unknown, fieldName: string): number {
   }
 
   return value;
+}
+
+function parseInteger(value: string | undefined, defaultValue: number, fieldName: string): number {
+  if (value === undefined || value.trim() === '') {
+    return defaultValue;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed)) {
+    throw new SaleServiceError('VALIDATION_ERROR', `${fieldName} debe ser un numero entero`);
+  }
+
+  return parsed;
+}
+
+function normalizePagination(query: SaleListQuery): { page: number; limit: number } {
+  const requestedPage = parseInteger(query.page, DEFAULT_PAGE, 'page');
+  const requestedLimit = parseInteger(query.limit, DEFAULT_LIMIT, 'limit');
+
+  return {
+    page: Math.max(1, requestedPage),
+    limit: Math.min(MAX_LIMIT, Math.max(1, requestedLimit))
+  };
+}
+
+function ensureOptionalDate(value: string | undefined, fieldName: string): string | undefined {
+  if (value === undefined || value.trim() === '') {
+    return undefined;
+  }
+
+  const normalizedValue = value.trim();
+
+  if (Number.isNaN(Date.parse(normalizedValue))) {
+    throw new SaleServiceError('VALIDATION_ERROR', `${fieldName} debe ser una fecha valida`);
+  }
+
+  return normalizedValue;
+}
+
+function getTotalHits(total: unknown): number {
+  if (typeof total === 'number') {
+    return total;
+  }
+
+  if (isRecord(total) && typeof total.value === 'number') {
+    return total.value;
+  }
+
+  return 0;
 }
 
 function roundMoney(value: number): number {
@@ -124,7 +186,7 @@ async function getSucursalNombre(sucursalId: string): Promise<string> {
       id: sucursalId
     });
 
-    return response._source?.nombre ?? sucursalId;
+  return response._source?.nombre ?? sucursalId;
   } catch (error: unknown) {
     if (isNotFoundError(error)) {
       return sucursalId;
@@ -132,6 +194,38 @@ async function getSucursalNombre(sucursalId: string): Promise<string> {
 
     throw error;
   }
+}
+
+async function findSaleById(sucursalId: string, ventaId: string): Promise<Sale | null> {
+  const index = getSalesIndexBySucursalId(sucursalId);
+  const normalizedVentaId = ensureNonEmptyString(ventaId, 'ventaId');
+
+  try {
+    const response = await elasticClient.get<Sale>({
+      index,
+      id: normalizedVentaId
+    });
+
+    if (response._source) {
+      return response._source;
+    }
+  } catch (error: unknown) {
+    if (!isNotFoundError(error)) {
+      throw error;
+    }
+  }
+
+  const response = await elasticClient.search<Sale>({
+    index,
+    size: 1,
+    query: {
+      term: {
+        venta_id: normalizedVentaId
+      }
+    }
+  });
+
+  return response.hits.hits[0]?._source ?? null;
 }
 
 async function findInventoryDocument(sucursalId: string, productoId: string): Promise<InventoryDocument | null> {
@@ -187,6 +281,88 @@ export function getInventoryIndexBySucursalId(sucursalId: string): string {
 
 export function getInventoryMovementsIndexBySucursalId(sucursalId: string): string {
   return `movimientos_inventario_sucursal_${getSucursalNumber(sucursalId)}`;
+}
+
+/**
+ * Lista ventas de una sucursal con filtros sobre los campos reales del indice.
+ */
+export async function listSalesBySucursal(sucursalId: string, query: SaleListQuery): Promise<SaleListResult> {
+  const index = getSalesIndexBySucursalId(sucursalId);
+  const { page, limit } = normalizePagination(query);
+  const filter: Record<string, unknown>[] = [];
+  const fechaInicio = ensureOptionalDate(query.fecha_inicio, 'fecha_inicio');
+  const fechaFin = ensureOptionalDate(query.fecha_fin, 'fecha_fin');
+
+  if (fechaInicio || fechaFin) {
+    filter.push({
+      range: {
+        fecha: {
+          ...(fechaInicio ? { gte: fechaInicio } : {}),
+          ...(fechaFin ? { lte: fechaFin } : {})
+        }
+      }
+    });
+  }
+
+  if (query.metodo_pago?.trim()) {
+    filter.push({
+      term: {
+        metodo_pago: query.metodo_pago.trim()
+      }
+    });
+  }
+
+  if (query.cajero_id?.trim()) {
+    filter.push({
+      term: {
+        cajero_id: query.cajero_id.trim()
+      }
+    });
+  }
+
+  if (query.cliente_id?.trim()) {
+    filter.push({
+      term: {
+        cliente_id: query.cliente_id.trim()
+      }
+    });
+  }
+
+  const response = await elasticClient.search<Sale>({
+    index,
+    from: (page - 1) * limit,
+    size: limit,
+    query:
+      filter.length > 0
+        ? {
+            bool: {
+              filter
+            }
+          }
+        : {
+            match_all: {}
+          },
+    sort: [{ fecha: { order: 'desc' } }]
+  });
+
+  return {
+    items: response.hits.hits.flatMap((hit) => (hit._source ? [hit._source] : [])),
+    pagination: {
+      page,
+      limit,
+      total: getTotalHits(response.hits.total)
+    }
+  };
+}
+
+export async function getSaleById(sucursalId: string, ventaId: string): Promise<Sale> {
+  const sale = await findSaleById(sucursalId, ventaId);
+
+  if (!sale) {
+    throw new SaleServiceError('NOT_FOUND', 'Venta no encontrada');
+  }
+
+  return sale;
 }
 
 /**
