@@ -1,0 +1,73 @@
+services:
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    container_name: oxxito-es01
+    environment:
+      - node.name=es01
+      - cluster.name=oxxito-cluster
+      - discovery.seed_hosts=es02,es03
+      - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=false
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - esdata01:/usr/share/elasticsearch/data
+    networks:
+      - oxxito-net
+
+  es02:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    container_name: oxxito-es02
+    environment:
+      - node.name=es02
+      - cluster.name=oxxito-cluster
+      - discovery.seed_hosts=es01,es03
+      - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=false
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - esdata02:/usr/share/elasticsearch/data
+    networks:
+      - oxxito-net
+
+  es03:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    container_name: oxxito-es03
+    environment:
+      - node.name=es03
+      - cluster.name=oxxito-cluster
+      - discovery.seed_hosts=es01,es02
+      - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=false
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - esdata03:/usr/share/elasticsearch/data
+    networks:
+      - oxxito-net
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.3
+    container_name: oxxito-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://es01:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - es01
+      - es02
+      - es03
+    networks:
+      - oxxito-net
+
+volumes:
+  esdata01:
+  esdata02:
+  esdata03:
+
+networks:
+  oxxito-net:
+    driver: bridge
