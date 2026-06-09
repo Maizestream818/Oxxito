@@ -7,6 +7,7 @@ import NewSalePage from './pages/NewSalePage';
 import ProductsPage from './pages/ProductsPage';
 import ReportsPage from './pages/ReportsPage';
 import SalesPage from './pages/SalesPage';
+import { AuthUser } from './types/api.types';
 import { NavigationItem, NavigationKey } from './types/navigation.types';
 
 const navigationItems: NavigationItem[] = [
@@ -27,30 +28,38 @@ const pageTitles: Record<NavigationKey, string> = {
   reports: 'Reportes'
 };
 
-function renderPage(activePage: NavigationKey) {
+function renderPage(activePage: NavigationKey, token: string, user: AuthUser) {
   switch (activePage) {
     case 'products':
-      return <ProductsPage />;
+      return <ProductsPage token={token} />;
     case 'inventory':
-      return <InventoryPage />;
+      return <InventoryPage token={token} user={user} />;
     case 'new-sale':
-      return <NewSalePage />;
+      return <NewSalePage token={token} user={user} />;
     case 'sales':
-      return <SalesPage />;
+      return <SalesPage token={token} user={user} />;
     case 'reports':
-      return <ReportsPage />;
+      return <ReportsPage token={token} user={user} />;
     case 'dashboard':
     default:
-      return <DashboardPage />;
+      return <DashboardPage token={token} user={user} />;
   }
 }
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [activePage, setActivePage] = useState<NavigationKey>('dashboard');
 
-  if (!isAuthenticated) {
-    return <LoginPage onLogin={() => setIsAuthenticated(true)} />;
+  if (!token || !user) {
+    return (
+      <LoginPage
+        onLogin={(nextToken, nextUser) => {
+          setToken(nextToken);
+          setUser(nextUser);
+        }}
+      />
+    );
   }
 
   return (
@@ -58,13 +67,15 @@ export default function App() {
       activePage={activePage}
       currentTitle={pageTitles[activePage]}
       navigationItems={navigationItems}
+      user={user}
       onLogout={() => {
         setActivePage('dashboard');
-        setIsAuthenticated(false);
+        setToken(null);
+        setUser(null);
       }}
       onNavigate={setActivePage}
     >
-      {renderPage(activePage)}
+      {renderPage(activePage, token, user)}
     </Layout>
   );
 }

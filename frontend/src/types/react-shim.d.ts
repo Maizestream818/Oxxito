@@ -3,6 +3,7 @@ declare module 'react' {
   export type Dispatch<A> = (value: A) => void;
 
   export function useState<S>(initialState: S | (() => S)): [S, Dispatch<SetStateAction<S>>];
+  export function useEffect(effect: () => void | (() => void), dependencies?: readonly unknown[]): void;
 }
 
 declare module 'react-dom/client' {

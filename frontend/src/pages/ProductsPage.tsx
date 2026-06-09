@@ -1,29 +1,69 @@
-const products = [
-  ['PROD-001', 'Bebidas Coca-Cola 001', 'Bebidas', '$11.75', 'Activo'],
-  ['PROD-002', 'Botanas Pepsi 002', 'Botanas', '$13.50', 'Activo'],
-  ['PROD-003', 'Lácteos Bimbo 003', 'Lácteos', '$15.25', 'Activo'],
-  ['PROD-004', 'Panadería Sabritas 004', 'Panadería', '$17.00', 'Activo']
-];
+import { useEffect, useState } from 'react';
+import { getProducts } from '../services/productService';
+import { Product } from '../types/api.types';
 
-export default function ProductsPage() {
+type ProductsPageProps = {
+  token: string;
+};
+
+function formatMoney(value: number): string {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN'
+  }).format(value);
+}
+
+export default function ProductsPage({ token }: ProductsPageProps) {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadProducts() {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const nextProducts = await getProducts(token, 20);
+
+        if (isMounted) {
+          setProducts(nextProducts);
+        }
+      } catch (requestError: unknown) {
+        if (isMounted) {
+          setError(requestError instanceof Error ? requestError.message : 'No se pudieron cargar productos');
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadProducts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [token]);
+
   return (
     <>
       <div className="page-heading">
         <div>
           <h2>Productos</h2>
-          <p>Catálogo global</p>
+          <p>Catálogo global desde Elasticsearch</p>
         </div>
-        <button className="primary-button" type="button">
-          Nuevo producto
-        </button>
       </div>
+
+      {error ? <div className="alert alert-error">{error}</div> : null}
 
       <article className="table-card">
         <div className="table-header">
-          <input className="search-input" placeholder="Buscar producto" type="search" />
-          <button className="secondary-button" type="button">
-            Filtrar
-          </button>
+          <h3>Productos cargados</h3>
+          <span className="table-muted">{isLoading ? 'Cargando...' : `${products.length} registros`}</span>
         </div>
 
         <table className="data-table">
@@ -32,19 +72,23 @@ export default function ProductsPage() {
               <th>ID</th>
               <th>Nombre</th>
               <th>Categoría</th>
+              <th>Marca</th>
               <th>Precio</th>
               <th>Estado</th>
             </tr>
           </thead>
           <tbody>
-            {products.map(([id, name, category, price, status]) => (
-              <tr key={id}>
-                <td>{id}</td>
-                <td>{name}</td>
-                <td>{category}</td>
-                <td>{price}</td>
+            {products.map((product) => (
+              <tr key={product.producto_id}>
+                <td>{product.producto_id}</td>
+                <td>{product.nombre}</td>
+                <td>{product.categoria}</td>
+                <td>{product.marca}</td>
+                <td>{formatMoney(product.precio)}</td>
                 <td>
-                  <span className="status-pill">{status}</span>
+                  <span className={`status-pill${product.activo ? '' : ' muted'}`}>
+                    {product.activo ? 'Activo' : 'Inactivo'}
+                  </span>
                 </td>
               </tr>
             ))}

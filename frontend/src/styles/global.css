@@ -100,7 +100,8 @@ button {
 
 .field input,
 .field select,
-.search-input {
+.search-input,
+.select-control {
   width: 100%;
   border: 1px solid #cfd8e3;
   border-radius: 8px;
@@ -112,9 +113,15 @@ button {
 
 .field input:focus,
 .field select:focus,
-.search-input:focus {
+.search-input:focus,
+.select-control:focus {
   border-color: #b42318;
   box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.12);
+}
+
+.select-control {
+  width: auto;
+  min-width: 140px;
 }
 
 .primary-button,
@@ -131,6 +138,12 @@ button {
   padding: 12px 16px;
   background: #b42318;
   color: #ffffff;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .secondary-button {
@@ -309,6 +322,18 @@ button {
   font-weight: 700;
 }
 
+.user-chip div {
+  display: grid;
+  gap: 2px;
+}
+
+.user-chip span:not(.user-avatar) {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
 .user-avatar {
   display: grid;
   width: 36px;
@@ -329,6 +354,34 @@ button {
 
 .content {
   padding: 28px;
+}
+
+.alert,
+.loading-state,
+.empty-state {
+  margin-bottom: 16px;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-weight: 700;
+}
+
+.alert-error {
+  border: 1px solid #fecdca;
+  background: #fffbfa;
+  color: #b42318;
+}
+
+.alert-success {
+  border: 1px solid #abefc6;
+  background: #f6fef9;
+  color: #067647;
+}
+
+.loading-state,
+.empty-state {
+  border: 1px solid #d8e0e8;
+  background: #ffffff;
+  color: #667085;
 }
 
 .page-heading {
@@ -388,6 +441,7 @@ button {
 .table-card,
 .placeholder-panel {
   padding: 18px;
+  overflow-x: auto;
 }
 
 .table-header,
@@ -429,6 +483,11 @@ button {
   font-weight: 800;
 }
 
+.status-pill.muted {
+  background: #f2f4f7;
+  color: #667085;
+}
+
 .placeholder-grid {
   display: grid;
   grid-template-columns: 0.9fr 1.1fr;
@@ -459,6 +518,10 @@ button {
   gap: 16px;
 }
 
+.form-action {
+  margin-top: 16px;
+}
+
 .sale-total {
   display: flex;
   align-items: center;
@@ -472,6 +535,10 @@ button {
 
 .sale-total strong {
   font-size: 24px;
+}
+
+.report-section {
+  margin-top: 16px;
 }
 
 @media (max-width: 960px) {

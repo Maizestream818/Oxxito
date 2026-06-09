@@ -1,29 +1,124 @@
-const metrics = [
-  { label: 'Ventas del día', value: '$24,850', trend: '12.4% arriba' },
-  { label: 'Productos activos', value: '200', trend: 'Catálogo base' },
-  { label: 'Inventario bajo', value: '18', trend: 'Prioridad media' },
-  { label: 'Sucursales', value: '10', trend: 'Operando' }
-];
+import { useEffect, useState } from 'react';
+import { getInventory } from '../services/inventoryService';
+import { getProducts } from '../services/productService';
+import { getBranchSummary } from '../services/reportService';
+import { getSales } from '../services/saleService';
+import { AuthUser, BranchSummaryReport, InventoryItem, Product, Sale } from '../types/api.types';
 
-const branchRows = [
-  ['SUC-01', 'Oxxito Centro', '$8,420', 'Activo'],
-  ['SUC-02', 'Oxxito Norte', '$6,310', 'Activo'],
-  ['SUC-03', 'Oxxito Sur', '$5,940', 'Activo'],
-  ['SUC-04', 'Oxxito Oriente', '$4,180', 'Activo']
-];
+type DashboardPageProps = {
+  token: string;
+  user: AuthUser;
+};
 
-export default function DashboardPage() {
+type DashboardState = {
+  products: Product[];
+  inventory: InventoryItem[];
+  sales: Sale[];
+  summary: BranchSummaryReport | null;
+};
+
+const emptyState: DashboardState = {
+  products: [],
+  inventory: [],
+  sales: [],
+  summary: null
+};
+
+function formatMoney(value: number): string {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN'
+  }).format(value);
+}
+
+function getOperationalSucursal(user: AuthUser): string {
+  return user.rol === 'admin' ? 'SUC-01' : user.sucursal_id;
+}
+
+export default function DashboardPage({ token, user }: DashboardPageProps) {
+  const [data, setData] = useState<DashboardState>(emptyState);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const sucursalId = getOperationalSucursal(user);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadDashboard() {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const [products, inventory, sales, summary] = await Promise.all([
+          getProducts(token, 100),
+          getInventory(token, sucursalId, 100),
+          getSales(token, sucursalId, 20),
+          user.rol === 'cajero' ? Promise.resolve(null) : getBranchSummary(token, sucursalId)
+        ]);
+
+        if (isMounted) {
+          setData({ products, inventory, sales, summary });
+        }
+      } catch (requestError: unknown) {
+        if (isMounted) {
+          setError(requestError instanceof Error ? requestError.message : 'No se pudo cargar el dashboard');
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadDashboard();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [sucursalId, token, user.rol]);
+
+  const visibleSales = data.sales.slice(0, 5);
+  const totalVentas = data.summary?.total_ventas ?? data.sales.length;
+  const totalIngresos =
+    data.summary?.total_ingresos ?? data.sales.reduce((total, sale) => total + sale.total, 0);
+
+  const metrics = [
+    {
+      label: 'Total ventas',
+      value: String(totalVentas),
+      trend: sucursalId
+    },
+    {
+      label: 'Total ingresos',
+      value: formatMoney(totalIngresos),
+      trend: 'Sucursal actual'
+    },
+    {
+      label: 'Productos cargados',
+      value: String(data.products.filter((product) => product.activo).length),
+      trend: 'Activos'
+    },
+    {
+      label: 'Registros de inventario',
+      value: String(data.inventory.length),
+      trend: 'Vista limitada'
+    }
+  ];
+
   return (
     <>
       <div className="page-heading">
         <div>
           <h2>Resumen operativo</h2>
-          <p>Corte general de operación</p>
+          <p>Datos reales de {sucursalId}</p>
         </div>
         <button className="secondary-button" type="button">
           Hoy
         </button>
       </div>
+
+      {error ? <div className="alert alert-error">{error}</div> : null}
+      {isLoading ? <div className="loading-state">Cargando dashboard...</div> : null}
 
       <section className="summary-grid">
         {metrics.map((metric) => (
@@ -38,28 +133,26 @@ export default function DashboardPage() {
       <section className="dashboard-grid">
         <article className="table-card">
           <div className="table-header">
-            <h3>Sucursales destacadas</h3>
-            <span className="table-muted">Turno matutino</span>
+            <h3>Ventas recientes</h3>
+            <span className="table-muted">{visibleSales.length} registros</span>
           </div>
 
           <table className="data-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Sucursal</th>
-                <th>Ventas</th>
-                <th>Estado</th>
+                <th>Venta</th>
+                <th>Cajero</th>
+                <th>Método</th>
+                <th>Total</th>
               </tr>
             </thead>
             <tbody>
-              {branchRows.map(([id, name, sales, status]) => (
-                <tr key={id}>
-                  <td>{id}</td>
-                  <td>{name}</td>
-                  <td>{sales}</td>
-                  <td>
-                    <span className="status-pill">{status}</span>
-                  </td>
+              {visibleSales.map((sale) => (
+                <tr key={sale.venta_id}>
+                  <td>{sale.venta_id}</td>
+                  <td>{sale.cajero_nombre}</td>
+                  <td>{sale.metodo_pago}</td>
+                  <td>{formatMoney(sale.total)}</td>
                 </tr>
               ))}
             </tbody>
@@ -68,26 +161,16 @@ export default function DashboardPage() {
 
         <article className="placeholder-panel">
           <div className="placeholder-header">
-            <h3>Actividad reciente</h3>
-            <span className="table-muted">4 eventos</span>
+            <h3>Inventario observado</h3>
+            <span className="table-muted">{data.inventory.length} productos</span>
           </div>
           <ul className="placeholder-list">
-            <li>
-              <span>Venta registrada</span>
-              <strong>SUC-01</strong>
-            </li>
-            <li>
-              <span>Inventario actualizado</span>
-              <strong>SUC-03</strong>
-            </li>
-            <li>
-              <span>Reporte generado</span>
-              <strong>Admin</strong>
-            </li>
-            <li>
-              <span>Producto desactivado</span>
-              <strong>PROD-999</strong>
-            </li>
+            {data.inventory.slice(0, 5).map((item) => (
+              <li key={item.inventario_id}>
+                <span>{item.producto_nombre}</span>
+                <strong>{item.stock}</strong>
+              </li>
+            ))}
           </ul>
         </article>
       </section>

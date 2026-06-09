@@ -1,42 +1,112 @@
-const inventoryRows = [
-  ['SUC-01', 'PROD-001', 'Bebidas Coca-Cola 001', '504', '20'],
-  ['SUC-01', 'PROD-002', 'Botanas Pepsi 002', '498', '20'],
-  ['SUC-02', 'PROD-003', 'Lácteos Bimbo 003', '515', '20'],
-  ['SUC-03', 'PROD-004', 'Panadería Sabritas 004', '489', '20']
-];
+import { useEffect, useState } from 'react';
+import { getInventory } from '../services/inventoryService';
+import { AuthUser, InventoryItem } from '../types/api.types';
 
-export default function InventoryPage() {
+type InventoryPageProps = {
+  token: string;
+  user: AuthUser;
+};
+
+const branchOptions = Array.from({ length: 10 }, (_, index) => `SUC-${String(index + 1).padStart(2, '0')}`);
+
+function formatMoney(value: number): string {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN'
+  }).format(value);
+}
+
+export default function InventoryPage({ token, user }: InventoryPageProps) {
+  const [selectedBranch, setSelectedBranch] = useState(user.rol === 'admin' ? 'SUC-01' : user.sucursal_id);
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInventory() {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const inventory = await getInventory(token, selectedBranch, 20);
+
+        if (isMounted) {
+          setItems(inventory);
+        }
+      } catch (requestError: unknown) {
+        if (isMounted) {
+          setError(requestError instanceof Error ? requestError.message : 'No se pudo cargar inventario');
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadInventory();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedBranch, token]);
+
   return (
     <>
       <div className="page-heading">
         <div>
           <h2>Inventario</h2>
-          <p>Existencias por sucursal</p>
+          <p>Existencias reales por sucursal</p>
         </div>
-        <button className="secondary-button" type="button">
-          SUC-01
-        </button>
+        {user.rol === 'admin' ? (
+          <select
+            className="select-control"
+            onChange={(event: { target: { value: string } }) => setSelectedBranch(event.target.value)}
+            value={selectedBranch}
+          >
+            {branchOptions.map((branch) => (
+              <option key={branch} value={branch}>
+                {branch}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <button className="secondary-button" type="button">
+            {selectedBranch}
+          </button>
+        )}
       </div>
 
+      {error ? <div className="alert alert-error">{error}</div> : null}
+
       <article className="table-card">
+        <div className="table-header">
+          <h3>{selectedBranch}</h3>
+          <span className="table-muted">{isLoading ? 'Cargando...' : `${items.length} registros`}</span>
+        </div>
+
         <table className="data-table">
           <thead>
             <tr>
-              <th>Sucursal</th>
               <th>Producto</th>
               <th>Nombre</th>
+              <th>Categoría</th>
               <th>Stock</th>
               <th>Mínimo</th>
+              <th>Precio</th>
             </tr>
           </thead>
           <tbody>
-            {inventoryRows.map(([branch, productId, name, stock, minimum]) => (
-              <tr key={`${branch}-${productId}`}>
-                <td>{branch}</td>
-                <td>{productId}</td>
-                <td>{name}</td>
-                <td>{stock}</td>
-                <td>{minimum}</td>
+            {items.map((item) => (
+              <tr key={item.inventario_id}>
+                <td>{item.producto_id}</td>
+                <td>{item.producto_nombre}</td>
+                <td>{item.categoria}</td>
+                <td>{item.stock}</td>
+                <td>{item.stock_minimo}</td>
+                <td>{formatMoney(item.precio)}</td>
               </tr>
             ))}
           </tbody>
