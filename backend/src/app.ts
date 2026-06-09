@@ -5,6 +5,7 @@ import elasticRoutes from './routes/elastic.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import securityRoutes from './routes/security.routes.js';
 import productRoutes from './routes/product.routes.js';
+import inventoryRoutes from './routes/inventory.routes.js';
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use('/api', elasticRoutes);
 app.use('/api', authRoutes);
 app.use('/api', securityRoutes);
 app.use('/api', productRoutes);
+app.use('/api', inventoryRoutes);
 
 /**
  * Ruta base para confirmar que la API existe.
