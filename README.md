@@ -15,38 +15,48 @@ Oxxito es un sistema academico de ventas para una cadena de tiendas de convenien
 
 El frontend consume una API REST del backend. El backend valida usuarios, roles, sucursales y reglas de negocio antes de consultar o modificar Elasticsearch.
 
-El cluster local de Elasticsearch se levanta con 3 nodos (`es01`, `es02`, `es03`) y Kibana. Los indices se dividen en:
+El cluster local de Elasticsearch se levanta con 3 nodos (`es01`, `es02`, `es03`) y Kibana. Los indices se dividen en dos grupos:
 
-- Indices globales:
-  - `sucursales`
-  - `usuarios`
-  - `productos`
-  - `clientes`
-- Indices fragmentados por sucursal:
-  - `ventas_sucursal_01` a `ventas_sucursal_10`
-  - `inventario_sucursal_01` a `inventario_sucursal_10`
-  - `movimientos_inventario_sucursal_01` a `movimientos_inventario_sucursal_10`
+Indices globales:
+
+- `sucursales`
+- `usuarios`
+- `productos`
+- `clientes`
+
+Indices fragmentados por sucursal:
+
+- `ventas_sucursal_01` a `ventas_sucursal_10`
+- `inventario_sucursal_01` a `inventario_sucursal_10`
+- `movimientos_inventario_sucursal_01` a `movimientos_inventario_sucursal_10`
 
 La fragmentacion por sucursal permite defender el diseno como base de datos distribuida para la rubrica. Elasticsearch distribuye shards y replicas entre los 3 nodos definidos en Docker Compose.
 
 ## Reglas de Negocio Relevantes
 
 - Un producto pertenece al catalogo global, pero el stock existe por sucursal.
-- Una venta solo puede registrar productos que:
-  - existen en el catalogo global;
-  - estan activos;
-  - existen en el inventario de la sucursal;
-  - tienen stock suficiente.
+
+Para registrar una venta, cada producto debe cumplir estas reglas:
+
+- El producto existe en el catalogo global.
+- El producto esta activo.
+- El producto existe en el inventario de la sucursal.
+- El producto tiene stock suficiente.
+
+Ademas:
+
 - Las cantidades de venta deben ser enteras positivas.
-- Los metodos de pago permitidos son:
-  - `efectivo`
-  - `tarjeta`
-  - `transferencia`
-  - `vales`
 - El descuento de inventario se realiza con un `update script` atomico de Elasticsearch para evitar stock negativo.
 - Cada venta genera movimientos de inventario.
 - `stock` y `stock_minimo` deben ser enteros no negativos.
 - Elasticsearch no ofrece transacciones ACID multi-documento. Para este proyecto se usa control atomico por documento en inventario y manejo controlado de errores si falla una escritura posterior.
+
+Metodos de pago permitidos:
+
+- `efectivo`
+- `tarjeta`
+- `transferencia`
+- `vales`
 
 ## Roles
 
@@ -60,121 +70,169 @@ La fragmentacion por sucursal permite defender el diseno como base de datos dist
 - Node.js.
 - Docker Desktop.
 
+## Puertos Utilizados
+
+| Servicio | Puerto | URL |
+| --- | ---: | --- |
+| Frontend | 5173 | [http://localhost:5173](http://localhost:5173/) |
+| Backend API | 3000 | [http://localhost:3000/api](http://localhost:3000/api) |
+| Elasticsearch | 9200 | [http://localhost:9200](http://localhost:9200/) |
+| Kibana | 5601 | [http://localhost:5601](http://localhost:5601/) |
+
 ## Instalacion y Ejecucion
+
+El sistema se ejecuta usando tres terminales separadas. Cuando el backend o el frontend se ejecutan con `npm.cmd run dev`, esa terminal queda ocupada mientras el servicio sigue activo.
+
+Despues de clonar el repositorio, abre cada terminal en la carpeta raiz del proyecto `Oxxito`.
+
+- Terminal 1: Elasticsearch y Kibana.
+- Terminal 2: Backend.
+- Terminal 3: Frontend.
 
 1. Clonar el repositorio.
 
 ```bash
-git clone <url-del-repositorio>
+git clone https://github.com/Maizestream818/Oxxito.git
 cd Oxxito
 ```
 
-2. Levantar Elasticsearch y Kibana.
+2. Terminal 1: levantar Elasticsearch y Kibana.
+
+Antes de levantar Elasticsearch y Kibana, Docker Desktop debe estar abierto y ejecutandose.
 
 ```bash
 cd elastic
 docker compose up -d
 ```
 
-3. Instalar dependencias del backend.
+3. Terminal 2: preparar y ejecutar el backend.
+
+Instalar dependencias:
 
 ```bash
-cd ../backend
+cd backend
 npm.cmd install
 ```
 
-4. Copiar variables de entorno del backend.
+Copiar variables de entorno del backend:
 
 ```bash
 copy .env.example .env
 ```
 
-5. Crear indices de Elasticsearch.
+Crear indices de Elasticsearch durante la primera instalacion para preparar la base de datos:
 
 ```bash
 npm.cmd run elastic:create-indices
 ```
 
-6. Cargar datos masivos.
+Cargar datos masivos durante la primera instalacion para preparar la base de datos:
 
 ```bash
 npm.cmd run elastic:seed
 ```
 
-7. Ejecutar backend.
+Ejecutar backend:
 
 ```bash
 npm.cmd run dev
 ```
 
-8. Instalar dependencias del frontend.
+4. Terminal 3: preparar y ejecutar el frontend.
+
+Instalar dependencias:
 
 ```bash
-cd ../frontend
+cd frontend
 npm.cmd install
 ```
 
-9. Ejecutar frontend.
+Ejecutar frontend:
 
 ```bash
 npm.cmd run dev
 ```
+
+5. Abrir en el navegador:
+
+[http://localhost:5173](http://localhost:5173/)
+
+Kibana se incluye para inspeccionar el cluster e indices de Elasticsearch, pero la aplicacion web principal se usa desde [http://localhost:5173](http://localhost:5173/).
+
+## Ejecucion Posterior
+
+Si el proyecto ya fue instalado, los indices ya fueron creados y los datos ya fueron cargados, no es necesario ejecutar otra vez:
+
+```bash
+npm.cmd run elastic:create-indices
+npm.cmd run elastic:seed
+```
+
+Para volver a encender el sistema:
+
+1. Terminal 1: levantar Elasticsearch y Kibana.
+
+```bash
+cd elastic
+docker compose up -d
+```
+
+2. Terminal 2: ejecutar backend.
+
+```bash
+cd backend
+npm.cmd run dev
+```
+
+3. Terminal 3: ejecutar frontend.
+
+```bash
+cd frontend
+npm.cmd run dev
+```
+
+4. Abrir la interfaz web:
+
+[http://localhost:5173](http://localhost:5173/)
+
+## Apagado Seguro
+
+Para apagar backend y frontend, presionar `Ctrl + C` en sus terminales.
+
+Para apagar Elasticsearch y Kibana sin borrar datos:
+
+```bash
+cd elastic
+docker compose stop
+```
+
+No se recomienda usar `docker compose down -v` porque puede borrar volumenes/datos.
+
+## Verificacion Rapida
+
+Backend:
+
+```bash
+curl.exe http://localhost:3000/api/health
+```
+
+Elasticsearch:
+
+```bash
+curl.exe "http://localhost:9200/_cluster/health?pretty"
+```
+
+Frontend:
+
+Abrir en el navegador:
+
+[http://localhost:5173](http://localhost:5173/)
 
 ## Usuarios Demo
 
 - Admin: `admin / 123456`
 - Gerente: `gerente01 / 123456`
 - Cajero: `cajero001 / 123456`
-
-## URLs Locales
-
-- Frontend: `http://localhost:5173`
-- Backend: `http://localhost:3000/api`
-- Elasticsearch: `http://localhost:9200`
-- Kibana: `http://localhost:5601`
-
-El frontend usa `VITE_API_BASE_URL` si existe. Si no se define, usa como fallback `http://localhost:3000/api`.
-
-## Comandos de Verificacion
-
-Backend:
-
-```bash
-cd backend
-npm.cmd run build
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm.cmd run build
-```
-
-Estado de Elasticsearch:
-
-```bash
-curl http://localhost:9200/_cluster/health?pretty
-```
-
-## Archivos No Versionados
-
-No se suben al repositorio:
-
-- `node_modules/`
-- `dist/`
-- `backend/.env`
-- archivos `.env` locales
-- datos internos de Elasticsearch
-- logs
-
-La base de datos puede reconstruirse con:
-
-```bash
-cd backend
-npm.cmd run elastic:create-indices
-npm.cmd run elastic:seed
-```
 
 ## Modulos del Sistema
 
@@ -186,15 +244,3 @@ npm.cmd run elastic:seed
 - Reportes de ventas.
 - Frontend conectado al backend.
 - Restriccion de acceso por rol y sucursal.
-
-## Notas para Presentacion
-
-Para una demostracion academica, el flujo recomendado es:
-
-1. Levantar el cluster y mostrar 3 nodos en Elasticsearch/Kibana.
-2. Iniciar backend y frontend.
-3. Entrar con `admin`.
-4. Mostrar productos, inventario y reportes.
-5. Entrar con `gerente01` y demostrar restriccion por sucursal.
-6. Entrar con `cajero001` y registrar una venta.
-7. Verificar que el stock baja y que las ventas/reportes se actualizan.
