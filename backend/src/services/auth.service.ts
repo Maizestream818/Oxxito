@@ -60,10 +60,12 @@ function toAuthenticatedUser(user: InternalUser): AuthenticatedUser {
 function createJwt(user: AuthenticatedUser): string {
   const payload: JwtPayload = {
     usuario_id: user.usuario_id,
+    nombre: user.nombre,
     username: user.username,
     rol: user.rol,
     sucursal_id: user.sucursal_id
   };
+  // Fallback solo para desarrollo local; configurar JWT_SECRET en entornos compartidos o productivos.
   const secret = process.env.JWT_SECRET || 'oxxito_secret_desarrollo';
   const expiresIn = (process.env.JWT_EXPIRES_IN || '8h') as SignOptions['expiresIn'];
 

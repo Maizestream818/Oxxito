@@ -51,20 +51,20 @@ function ensureNonEmptyString(value: unknown, fieldName: string): string {
   return value.trim();
 }
 
-function ensureNonNegativeNumber(value: unknown, fieldName: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw new InventoryServiceError('VALIDATION_ERROR', `${fieldName} debe ser mayor o igual a 0`);
+function ensureNonNegativeInteger(value: unknown, fieldName: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    throw new InventoryServiceError('VALIDATION_ERROR', `${fieldName} debe ser un entero mayor o igual a 0`);
   }
 
   return value;
 }
 
-function ensureOptionalNonNegativeNumber(value: unknown, fieldName: string): number | undefined {
+function ensureOptionalNonNegativeInteger(value: unknown, fieldName: string): number | undefined {
   if (value === undefined) {
     return undefined;
   }
 
-  return ensureNonNegativeNumber(value, fieldName);
+  return ensureNonNegativeInteger(value, fieldName);
 }
 
 function parseInteger(value: string | undefined, defaultValue: number, fieldName: string): number {
@@ -127,8 +127,8 @@ function validateUpdateData(data: UpdateInventoryRequestBody): UpdateInventoryRe
   }
 
   return {
-    stock: ensureOptionalNonNegativeNumber(data.stock, 'stock'),
-    stock_minimo: ensureOptionalNonNegativeNumber(data.stock_minimo, 'stock_minimo')
+    stock: ensureOptionalNonNegativeInteger(data.stock, 'stock'),
+    stock_minimo: ensureOptionalNonNegativeInteger(data.stock_minimo, 'stock_minimo')
   };
 }
 

@@ -78,20 +78,25 @@ export default function DashboardPage({ token, user }: DashboardPageProps) {
   }, [sucursalId, token, user.rol]);
 
   const visibleSales = data.sales.slice(0, 5);
-  const totalVentas = data.summary?.total_ventas ?? data.sales.length;
-  const totalIngresos =
+  const canViewBranchSummary = user.rol !== 'cajero';
+  const ventasMetric = data.summary?.total_ventas ?? data.sales.length;
+  const ingresosMetric =
     data.summary?.total_ingresos ?? data.sales.reduce((total, sale) => total + sale.total, 0);
+  const branchContext =
+    user.rol === 'admin'
+      ? `${sucursalId} por defecto`
+      : sucursalId;
 
   const metrics = [
     {
-      label: 'Total ventas',
-      value: String(totalVentas),
-      trend: sucursalId
+      label: canViewBranchSummary ? 'Ventas de sucursal' : 'Ventas recientes consultadas',
+      value: String(ventasMetric),
+      trend: canViewBranchSummary ? branchContext : 'Ultimas 20 consultadas'
     },
     {
-      label: 'Total ingresos',
-      value: formatMoney(totalIngresos),
-      trend: 'Sucursal actual'
+      label: canViewBranchSummary ? 'Ingresos de sucursal' : 'Ingresos recientes consultados',
+      value: formatMoney(ingresosMetric),
+      trend: canViewBranchSummary ? 'Resumen autorizado' : 'Ultimas 20 consultadas'
     },
     {
       label: 'Productos cargados',
@@ -110,10 +115,14 @@ export default function DashboardPage({ token, user }: DashboardPageProps) {
       <div className="page-heading">
         <div>
           <h2>Resumen operativo</h2>
-          <p>Datos reales de {sucursalId}</p>
+          <p>
+            {user.rol === 'admin'
+              ? `Datos reales de ${sucursalId}; sucursal por defecto para admin`
+              : `Datos reales de ${sucursalId}`}
+          </p>
         </div>
         <button className="secondary-button" type="button">
-          Hoy
+          Vista sucursal
         </button>
       </div>
 

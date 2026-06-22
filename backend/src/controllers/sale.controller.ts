@@ -38,7 +38,8 @@ function handleSaleError(error: unknown, res: Response): void {
   if (error instanceof SaleServiceError) {
     const statusByCode: Record<SaleServiceError['code'], number> = {
       VALIDATION_ERROR: 400,
-      NOT_FOUND: 404
+      NOT_FOUND: 404,
+      WRITE_ERROR: 500
     };
 
     res.status(statusByCode[error.code]).json({

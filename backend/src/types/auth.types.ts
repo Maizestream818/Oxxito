@@ -18,6 +18,7 @@ export type LoginResponse = {
 
 export type JwtPayload = {
   usuario_id: string;
+  nombre: string;
   username: string;
   rol: string;
   sucursal_id: string;

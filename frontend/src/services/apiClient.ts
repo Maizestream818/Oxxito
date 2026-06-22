@@ -1,6 +1,6 @@
 import { ApiErrorResponse } from '../types/api.types';
 
-export const API_BASE_URL = 'http://localhost:3000/api';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 type RequestOptions = Omit<RequestInit, 'body'> & {
   body?: unknown;

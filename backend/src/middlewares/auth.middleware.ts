@@ -20,21 +20,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function isValidJwtPayload(value: unknown): value is JwtPayload & { nombre?: string } {
+function isValidJwtPayload(value: unknown): value is JwtPayload {
   return (
     isRecord(value) &&
     typeof value.usuario_id === 'string' &&
+    typeof value.nombre === 'string' &&
     typeof value.username === 'string' &&
     typeof value.rol === 'string' &&
-    typeof value.sucursal_id === 'string' &&
-    (value.nombre === undefined || typeof value.nombre === 'string')
+    typeof value.sucursal_id === 'string'
   );
 }
 
-function toAuthenticatedUser(payload: JwtPayload & { nombre?: string }): AuthenticatedUser {
+function toAuthenticatedUser(payload: JwtPayload): AuthenticatedUser {
   return {
     usuario_id: payload.usuario_id,
-    nombre: payload.nombre ?? '',
+    nombre: payload.nombre,
     username: payload.username,
     rol: payload.rol,
     sucursal_id: payload.sucursal_id
@@ -60,6 +60,7 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
   }
 
   try {
+    // Fallback solo para desarrollo local; configurar JWT_SECRET en entornos compartidos o productivos.
     const secret = process.env.JWT_SECRET || 'oxxito_secret_desarrollo';
     const decoded = jwt.verify(token, secret);
 

@@ -1,14 +1,17 @@
 import { elasticClient } from '../config/elasticClient.js';
 import { AuthenticatedUser } from '../types/auth.types.js';
 import { InventoryItem } from '../types/inventory.types.js';
+import { Product } from '../types/product.types.js';
 import { CreateSaleRequestBody, Sale, SaleListQuery, SaleProduct } from '../types/sale.types.js';
 
 const IVA_RATE = 0.16;
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const VALID_PAYMENT_METHODS = ['efectivo', 'tarjeta', 'transferencia', 'vales'] as const;
 
-type SaleServiceErrorCode = 'VALIDATION_ERROR' | 'NOT_FOUND';
+type PaymentMethod = (typeof VALID_PAYMENT_METHODS)[number];
+type SaleServiceErrorCode = 'VALIDATION_ERROR' | 'NOT_FOUND' | 'WRITE_ERROR';
 
 type InventoryDocument = {
   id: string;
@@ -18,6 +21,18 @@ type InventoryDocument = {
 type SucursalDocument = {
   sucursal_id: string;
   nombre: string;
+};
+
+type PreparedSaleProduct = {
+  product: Product;
+  inventoryDocument: InventoryDocument;
+  cantidad: number;
+};
+
+type DiscountedSaleProduct = PreparedSaleProduct & {
+  item: InventoryItem;
+  stock_anterior: number;
+  stock_nuevo: number;
 };
 
 type ValidatedSaleProduct = {
@@ -69,6 +84,22 @@ function isNotFoundError(error: unknown): boolean {
   return error.meta.statusCode === 404;
 }
 
+function getErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch (_jsonError: unknown) {
+    return '';
+  }
+}
+
+function isInsufficientStockError(error: unknown): boolean {
+  return getErrorText(error).includes('STOCK_INSUFICIENTE');
+}
+
 function ensureNonEmptyString(value: unknown, fieldName: string): string {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new SaleServiceError('VALIDATION_ERROR', `${fieldName} es requerido`);
@@ -83,6 +114,16 @@ function ensurePositiveInteger(value: unknown, fieldName: string): number {
   }
 
   return value;
+}
+
+function ensurePaymentMethod(value: unknown): PaymentMethod {
+  const metodoPago = ensureNonEmptyString(value, 'metodo_pago');
+
+  if (!VALID_PAYMENT_METHODS.includes(metodoPago as PaymentMethod)) {
+    throw new SaleServiceError('VALIDATION_ERROR', 'metodo_pago debe ser efectivo, tarjeta, transferencia o vales');
+  }
+
+  return metodoPago as PaymentMethod;
 }
 
 function parseInteger(value: string | undefined, defaultValue: number, fieldName: string): number {
@@ -186,7 +227,7 @@ async function getSucursalNombre(sucursalId: string): Promise<string> {
       id: sucursalId
     });
 
-  return response._source?.nombre ?? sucursalId;
+    return response._source?.nombre ?? sucursalId;
   } catch (error: unknown) {
     if (isNotFoundError(error)) {
       return sucursalId;
@@ -221,6 +262,37 @@ async function findSaleById(sucursalId: string, ventaId: string): Promise<Sale |
     query: {
       term: {
         venta_id: normalizedVentaId
+      }
+    }
+  });
+
+  return response.hits.hits[0]?._source ?? null;
+}
+
+async function findProductById(productoId: string): Promise<Product | null> {
+  const normalizedProductoId = ensureNonEmptyString(productoId, 'producto_id');
+
+  try {
+    const response = await elasticClient.get<Product>({
+      index: 'productos',
+      id: normalizedProductoId
+    });
+
+    if (response._source) {
+      return response._source;
+    }
+  } catch (error: unknown) {
+    if (!isNotFoundError(error)) {
+      throw error;
+    }
+  }
+
+  const response = await elasticClient.search<Product>({
+    index: 'productos',
+    size: 1,
+    query: {
+      term: {
+        producto_id: normalizedProductoId
       }
     }
   });
@@ -269,6 +341,96 @@ async function findInventoryDocument(sucursalId: string, productoId: string): Pr
     id: hit._id ?? expectedId,
     item: hit._source
   };
+}
+
+async function discountInventoryStock(
+  inventoryIndex: string,
+  inventoryDocument: InventoryDocument,
+  cantidad: number
+): Promise<InventoryItem> {
+  try {
+    const response = await elasticClient.update<InventoryItem, Partial<InventoryItem>, InventoryItem>({
+      index: inventoryIndex,
+      id: inventoryDocument.id,
+      retry_on_conflict: 3,
+      refresh: true,
+      _source: true,
+      script: {
+        lang: 'painless',
+        source: `
+          if (ctx._source.stock == null || ctx._source.stock < params.cantidad) {
+            throw new IllegalArgumentException('STOCK_INSUFICIENTE');
+          }
+          ctx._source.stock = ctx._source.stock - params.cantidad;
+          if (ctx._source.stock < 0) {
+            throw new IllegalArgumentException('STOCK_INSUFICIENTE');
+          }
+          ctx._source.updated_at = params.updated_at;
+        `,
+        params: {
+          cantidad,
+          updated_at: new Date().toISOString()
+        }
+      }
+    });
+    const updatedItem = response.get?._source;
+
+    if (!updatedItem) {
+      throw new SaleServiceError('WRITE_ERROR', `No se pudo confirmar descuento para ${inventoryDocument.item.producto_id}`);
+    }
+
+    return updatedItem;
+  } catch (error: unknown) {
+    if (isInsufficientStockError(error)) {
+      throw new SaleServiceError('VALIDATION_ERROR', `Stock insuficiente para ${inventoryDocument.item.producto_id}`);
+    }
+
+    if (isNotFoundError(error)) {
+      throw new SaleServiceError('NOT_FOUND', `Inventario no encontrado para ${inventoryDocument.item.producto_id}`);
+    }
+
+    throw error;
+  }
+}
+
+async function restoreInventoryStock(
+  inventoryIndex: string,
+  discountedProduct: DiscountedSaleProduct
+): Promise<void> {
+  await elasticClient.update({
+    index: inventoryIndex,
+    id: discountedProduct.inventoryDocument.id,
+    retry_on_conflict: 3,
+    refresh: true,
+    script: {
+      lang: 'painless',
+      source: `
+        ctx._source.stock = (ctx._source.stock == null ? 0 : ctx._source.stock) + params.cantidad;
+        ctx._source.updated_at = params.updated_at;
+      `,
+      params: {
+        cantidad: discountedProduct.cantidad,
+        updated_at: new Date().toISOString()
+      }
+    }
+  });
+}
+
+async function restoreDiscountedInventory(
+  inventoryIndex: string,
+  discountedProducts: DiscountedSaleProduct[]
+): Promise<string[]> {
+  const errors: string[] = [];
+
+  for (const discountedProduct of discountedProducts) {
+    try {
+      await restoreInventoryStock(inventoryIndex, discountedProduct);
+    } catch (error: unknown) {
+      errors.push(`${discountedProduct.item.producto_id}: ${getErrorText(error)}`);
+    }
+  }
+
+  return errors;
 }
 
 export function getSalesIndexBySucursalId(sucursalId: string): string {
@@ -374,42 +536,85 @@ export async function createSale(
   data: CreateSaleRequestBody
 ): Promise<Sale> {
   const normalizedSucursalId = ensureNonEmptyString(sucursalId, 'sucursalId');
-  const metodoPago = ensureNonEmptyString(data.metodo_pago, 'metodo_pago');
+  const metodoPago = ensurePaymentMethod(data.metodo_pago);
   const clienteId = data.cliente_id?.trim() || undefined;
   const saleProductsRequest = normalizeSaleProducts(data);
   const salesIndex = getSalesIndexBySucursalId(normalizedSucursalId);
   const inventoryIndex = getInventoryIndexBySucursalId(normalizedSucursalId);
   const movementsIndex = getInventoryMovementsIndexBySucursalId(normalizedSucursalId);
-  const inventoryDocuments: Array<InventoryDocument & { cantidad: number }> = [];
+  const preparedProducts: PreparedSaleProduct[] = [];
 
   for (const product of saleProductsRequest) {
+    const catalogProduct = await findProductById(product.producto_id);
+
+    if (!catalogProduct) {
+      throw new SaleServiceError('NOT_FOUND', `Producto no encontrado: ${product.producto_id}`);
+    }
+
+    if (!catalogProduct.activo) {
+      throw new SaleServiceError('VALIDATION_ERROR', `Producto inactivo: ${product.producto_id}`);
+    }
+
     const inventoryDocument = await findInventoryDocument(normalizedSucursalId, product.producto_id);
 
     if (!inventoryDocument) {
       throw new SaleServiceError('NOT_FOUND', `Inventario no encontrado para ${product.producto_id}`);
     }
 
+    // Prevalidacion para errores obvios; el update script de Elasticsearch es la autoridad final.
     if (inventoryDocument.item.stock < product.cantidad) {
       throw new SaleServiceError('VALIDATION_ERROR', `Stock insuficiente para ${product.producto_id}`);
     }
 
-    inventoryDocuments.push({
-      ...inventoryDocument,
+    preparedProducts.push({
+      product: catalogProduct,
+      inventoryDocument,
       cantidad: product.cantidad
     });
   }
 
+  const discountedProducts: DiscountedSaleProduct[] = [];
+
+  try {
+    for (const preparedProduct of preparedProducts) {
+      const updatedItem = await discountInventoryStock(
+        inventoryIndex,
+        preparedProduct.inventoryDocument,
+        preparedProduct.cantidad
+      );
+
+      discountedProducts.push({
+        ...preparedProduct,
+        item: updatedItem,
+        stock_anterior: updatedItem.stock + preparedProduct.cantidad,
+        stock_nuevo: updatedItem.stock
+      });
+    }
+  } catch (error: unknown) {
+    const rollbackErrors = await restoreDiscountedInventory(inventoryIndex, discountedProducts);
+
+    if (rollbackErrors.length > 0) {
+      throw new SaleServiceError('WRITE_ERROR', 'Venta no completada y no se pudo revertir todo el descuento de inventario');
+    }
+
+    if (error instanceof SaleServiceError) {
+      throw error;
+    }
+
+    throw new SaleServiceError('WRITE_ERROR', 'Venta no completada por error al descontar inventario');
+  }
+
   const now = new Date().toISOString();
   const ventaId = `VENTA-${normalizedSucursalId}-${Date.now()}`;
-  const productos: SaleProduct[] = inventoryDocuments.map((inventoryDocument) => {
-    const subtotal = roundMoney(inventoryDocument.cantidad * inventoryDocument.item.precio);
+  const productos: SaleProduct[] = discountedProducts.map((discountedProduct) => {
+    const subtotal = roundMoney(discountedProduct.cantidad * discountedProduct.item.precio);
 
     return {
-      producto_id: inventoryDocument.item.producto_id,
-      nombre: inventoryDocument.item.producto_nombre,
-      categoria: inventoryDocument.item.categoria,
-      cantidad: inventoryDocument.cantidad,
-      precio_unitario: inventoryDocument.item.precio,
+      producto_id: discountedProduct.item.producto_id,
+      nombre: discountedProduct.product.nombre,
+      categoria: discountedProduct.product.categoria,
+      cantidad: discountedProduct.cantidad,
+      precio_unitario: discountedProduct.item.precio,
       subtotal
     };
   });
@@ -431,46 +636,39 @@ export async function createSale(
     productos
   };
 
-  await elasticClient.index({
-    index: salesIndex,
-    id: ventaId,
-    document: sale,
-    refresh: true
-  });
-
-  for (const [index, inventoryDocument] of inventoryDocuments.entries()) {
-    const stockAnterior = inventoryDocument.item.stock;
-    const stockNuevo = stockAnterior - inventoryDocument.cantidad;
-    const updatedAt = new Date().toISOString();
-    const movement: SaleMovement = {
-      movimiento_id: `MOV-${ventaId}-${padNumber(index + 1, 3)}`,
-      sucursal_id: normalizedSucursalId,
-      producto_id: inventoryDocument.item.producto_id,
-      tipo: 'VENTA',
-      cantidad: inventoryDocument.cantidad,
-      stock_anterior: stockAnterior,
-      stock_nuevo: stockNuevo,
-      motivo: `Venta registrada ${ventaId}`,
-      venta_id: ventaId,
-      fecha: now
-    };
-
-    await elasticClient.update({
-      index: inventoryIndex,
-      id: inventoryDocument.id,
-      doc: {
-        stock: stockNuevo,
-        updated_at: updatedAt
-      },
-      refresh: true
-    });
-
+  try {
     await elasticClient.index({
-      index: movementsIndex,
-      id: movement.movimiento_id,
-      document: movement,
+      index: salesIndex,
+      id: ventaId,
+      document: sale,
       refresh: true
     });
+
+    for (const [index, discountedProduct] of discountedProducts.entries()) {
+      const movement: SaleMovement = {
+        movimiento_id: `MOV-${ventaId}-${padNumber(index + 1, 3)}`,
+        sucursal_id: normalizedSucursalId,
+        producto_id: discountedProduct.item.producto_id,
+        tipo: 'VENTA',
+        cantidad: discountedProduct.cantidad,
+        stock_anterior: discountedProduct.stock_anterior,
+        stock_nuevo: discountedProduct.stock_nuevo,
+        motivo: `Venta registrada ${ventaId}`,
+        venta_id: ventaId,
+        fecha: now
+      };
+
+      await elasticClient.index({
+        index: movementsIndex,
+        id: movement.movimiento_id,
+        document: movement,
+        refresh: true
+      });
+    }
+  } catch (_error: unknown) {
+    // Elasticsearch no ofrece transacciones ACID multi-documento; se protege el stock por documento
+    // con update script atomico y se devuelve un error controlado si falla una escritura posterior.
+    throw new SaleServiceError('WRITE_ERROR', 'Inventario descontado, pero no se pudo completar el registro de venta');
   }
 
   return sale;
